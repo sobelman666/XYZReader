@@ -3,14 +3,18 @@ package com.example.xyzreader.ui;
 import android.app.Fragment;
 import android.app.FragmentManager;
 import android.app.LoaderManager;
+import android.content.Intent;
 import android.content.Loader;
 import android.database.Cursor;
 import android.graphics.drawable.ColorDrawable;
 import android.os.Build;
 import android.os.Bundle;
+import android.support.annotation.RequiresApi;
+import android.support.design.widget.FloatingActionButton;
 import android.support.v13.app.FragmentStatePagerAdapter;
+import android.support.v4.app.ShareCompat;
 import android.support.v4.view.ViewPager;
-import android.support.v7.app.ActionBarActivity;
+import android.support.v7.app.AppCompatActivity;
 import android.util.TypedValue;
 import android.view.View;
 import android.view.ViewGroup;
@@ -23,11 +27,14 @@ import com.example.xyzreader.data.ItemsContract;
 /**
  * An activity representing a single Article detail screen, letting you swipe between articles.
  */
-public class ArticleDetailActivity extends ActionBarActivity
+public class ArticleDetailActivity extends AppCompatActivity
         implements LoaderManager.LoaderCallbacks<Cursor> {
 
     private Cursor mCursor;
     private long mStartId;
+
+    private String mSelectedTitle;
+    private String mSelectedArticleUrl;
 
     private long mSelectedItemId;
     private int mSelectedItemUpButtonFloor = Integer.MAX_VALUE;
@@ -37,6 +44,7 @@ public class ArticleDetailActivity extends ActionBarActivity
     private MyPagerAdapter mPagerAdapter;
     private View mUpButtonContainer;
     private View mUpButton;
+    private FloatingActionButton mShareFab;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -51,7 +59,7 @@ public class ArticleDetailActivity extends ActionBarActivity
         getLoaderManager().initLoader(0, null, this);
 
         mPagerAdapter = new MyPagerAdapter(getFragmentManager());
-        mPager = (ViewPager) findViewById(R.id.pager);
+        mPager = findViewById(R.id.pager);
         mPager.setAdapter(mPagerAdapter);
         mPager.setPageMargin((int) TypedValue
                 .applyDimension(TypedValue.COMPLEX_UNIT_DIP, 1, getResources().getDisplayMetrics()));
@@ -64,6 +72,11 @@ public class ArticleDetailActivity extends ActionBarActivity
                 mUpButton.animate()
                         .alpha((state == ViewPager.SCROLL_STATE_IDLE) ? 1f : 0f)
                         .setDuration(300);
+                if (state == ViewPager.SCROLL_STATE_DRAGGING) {
+                    mShareFab.animate().alpha(0f).setDuration(300);
+                } else if (state == ViewPager.SCROLL_STATE_IDLE) {
+                    mShareFab.animate().alpha(1f).setDuration(300);
+                }
             }
 
             @Override
@@ -72,6 +85,8 @@ public class ArticleDetailActivity extends ActionBarActivity
                     mCursor.moveToPosition(position);
                 }
                 mSelectedItemId = mCursor.getLong(ArticleLoader.Query._ID);
+                mSelectedTitle = mCursor.getString(ArticleLoader.Query.TITLE);
+                mSelectedArticleUrl = extractUrlFromArticle(mCursor.getString(ArticleLoader.Query.BODY));
                 updateUpButtonPosition();
             }
         });
@@ -88,6 +103,7 @@ public class ArticleDetailActivity extends ActionBarActivity
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
             mUpButtonContainer.setOnApplyWindowInsetsListener(new View.OnApplyWindowInsetsListener() {
+                @RequiresApi(api = Build.VERSION_CODES.LOLLIPOP)
                 @Override
                 public WindowInsets onApplyWindowInsets(View view, WindowInsets windowInsets) {
                     view.onApplyWindowInsets(windowInsets);
@@ -99,12 +115,38 @@ public class ArticleDetailActivity extends ActionBarActivity
             });
         }
 
+        mShareFab = findViewById(R.id.fab_share);
+        mShareFab.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View view) {
+                startActivity(Intent.createChooser(ShareCompat.IntentBuilder.from(ArticleDetailActivity.this)
+                        .setType("text/plain")
+                        .setSubject(mSelectedTitle)
+                        .setText("I just read " + mSelectedTitle + " in XYZ Reader! You can read it here:\n\n" + mSelectedArticleUrl)
+                        .getIntent(), getString(R.string.action_share)));
+            }
+        });
+
         if (savedInstanceState == null) {
             if (getIntent() != null && getIntent().getData() != null) {
                 mStartId = ItemsContract.Items.getItemId(getIntent().getData());
                 mSelectedItemId = mStartId;
             }
         }
+    }
+
+    private String extractUrlFromArticle(String body) {
+        String basePredecessor =
+                "This and all associated files of various formats will be found in:";
+        int urlBaseIndex = body.indexOf("http:", body.indexOf(basePredecessor));
+        String urlBase = body.substring(urlBaseIndex, body.indexOf('\r', urlBaseIndex));
+        if (urlBase.endsWith("/")) {
+            urlBase = urlBase.substring(0, urlBase.lastIndexOf("/"));
+        }
+        String filenamePredecessor = "***** This file should be named ";
+        int filenameIndex = body.indexOf(filenamePredecessor) + filenamePredecessor.length();
+        String filename = body.substring(filenameIndex, body.indexOf("txt", filenameIndex) + 3);
+        return urlBase + "/" + filename;
     }
 
     @Override
@@ -125,6 +167,8 @@ public class ArticleDetailActivity extends ActionBarActivity
                 if (mCursor.getLong(ArticleLoader.Query._ID) == mStartId) {
                     final int position = mCursor.getPosition();
                     mPager.setCurrentItem(position, false);
+                    mSelectedTitle = mCursor.getString(ArticleLoader.Query.TITLE);
+                    mSelectedArticleUrl = extractUrlFromArticle(mCursor.getString(ArticleLoader.Query.BODY));
                     break;
                 }
                 mCursor.moveToNext();
@@ -152,7 +196,7 @@ public class ArticleDetailActivity extends ActionBarActivity
     }
 
     private class MyPagerAdapter extends FragmentStatePagerAdapter {
-        public MyPagerAdapter(FragmentManager fm) {
+        MyPagerAdapter(FragmentManager fm) {
             super(fm);
         }
 
@@ -163,6 +207,7 @@ public class ArticleDetailActivity extends ActionBarActivity
             if (fragment != null) {
                 mSelectedItemUpButtonFloor = fragment.getUpButtonFloor();
                 updateUpButtonPosition();
+                mShareFab.animate().alpha(1f).setDuration(300);
             }
         }
 
